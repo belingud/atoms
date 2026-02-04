@@ -20,13 +20,14 @@ import { LogOut, Settings, Menu, PanelLeftClose, PanelLeft } from 'lucide-react'
 interface AppLayoutProps {
   sidebar: ReactNode
   chat: ReactNode
-  preview: ReactNode
+  preview: ReactNode | null
   user?: {
     name?: string
     email?: string
     avatarUrl?: string
   }
   onLogout?: () => void
+  hasActiveProject?: boolean
 }
 
 export function AppLayout({
@@ -35,6 +36,7 @@ export function AppLayout({
   preview,
   user,
   onLogout,
+  hasActiveProject = false,
 }: AppLayoutProps) {
   const [showPreview, setShowPreview] = useState(true)
 
@@ -47,7 +49,7 @@ export function AppLayout({
   return (
     <div className="flex h-screen flex-col bg-background">
       {/* Header */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-gray-200 px-4 bg-white">
         <div className="flex items-center gap-2">
           {/* Mobile sidebar toggle */}
           <Sheet>
@@ -61,34 +63,36 @@ export function AppLayout({
             </SheetContent>
           </Sheet>
 
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 text-white font-bold text-sm">
             A
           </div>
-          <span className="text-lg font-semibold">Atoms</span>
+          <span className="text-lg font-semibold text-gray-900">Atoms</span>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Toggle preview panel */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 hidden lg:flex"
-            onClick={() => setShowPreview(!showPreview)}
-          >
-            {showPreview ? (
-              <PanelLeftClose className="h-4 w-4" />
-            ) : (
-              <PanelLeft className="h-4 w-4" />
-            )}
-          </Button>
+          {hasActiveProject && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 hidden lg:flex"
+              onClick={() => setShowPreview(!showPreview)}
+            >
+              {showPreview ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeft className="h-4 w-4" />
+              )}
+            </Button>
+          )}
 
           {user && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 rounded-lg p-1 hover:bg-accent transition-colors">
+                <button className="flex items-center gap-2 rounded-lg p-1 hover:bg-gray-100 transition-colors">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src={user.avatarUrl} alt={user.name || 'User'} />
-                    <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                    <AvatarFallback className="text-xs bg-blue-100 text-blue-600">{initials}</AvatarFallback>
                   </Avatar>
                 </button>
               </DropdownMenuTrigger>
@@ -100,11 +104,11 @@ export function AppLayout({
                 <Separator className="my-1" />
                 <DropdownMenuItem>
                   <Settings className="mr-2 h-4 w-4" />
-                  Settings
+                  设置
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={onLogout} className="text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
-                  Log out
+                  退出登录
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -112,23 +116,33 @@ export function AppLayout({
         </div>
       </header>
 
-      {/* Main Content - Three Panel Layout */}
+      {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - hidden on mobile */}
-        <aside className="hidden md:block w-64 shrink-0 border-r border-border bg-sidebar overflow-y-auto">
+        <aside className="hidden md:block w-64 shrink-0 border-r border-gray-200 bg-gray-50/50 overflow-y-auto">
           {sidebar}
         </aside>
 
-        {/* Chat Panel */}
-        <main className="flex flex-1 flex-col min-w-0 border-r border-border">
-          {chat}
-        </main>
+        {/* Main content area */}
+        {hasActiveProject ? (
+          <>
+            {/* Chat Panel */}
+            <main className="flex flex-1 flex-col min-w-0 border-r border-gray-200 bg-white">
+              {chat}
+            </main>
 
-        {/* Preview Panel - hidden on small screens or when toggled off */}
-        {showPreview && (
-          <aside className="hidden lg:block flex-1 min-w-0 bg-card overflow-hidden">
-            {preview}
-          </aside>
+            {/* Preview Panel - hidden on small screens or when toggled off */}
+            {showPreview && preview && (
+              <aside className="hidden lg:block flex-1 min-w-0 bg-gray-50 overflow-hidden">
+                {preview}
+              </aside>
+            )}
+          </>
+        ) : (
+          /* Welcome page - full width */
+          <main className="flex flex-1 flex-col min-w-0 bg-gradient-to-b from-gray-50 to-white">
+            {chat}
+          </main>
         )}
       </div>
     </div>

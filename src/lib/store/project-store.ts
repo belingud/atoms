@@ -33,10 +33,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       set({ projects: data || [], isLoading: false })
 
-      // Set first project as active if none selected
-      if (data && data.length > 0 && !get().activeProject) {
-        set({ activeProject: data[0] })
-      }
+      // Don't auto-select project - let user choose or stay on welcome page
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false })
     }
