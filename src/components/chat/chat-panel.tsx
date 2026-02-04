@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -19,26 +19,33 @@ import { Send, MessageSquare, Trash2, X, CheckSquare } from 'lucide-react'
 import { useChatStore } from '@/lib/store/chat-store'
 import { useProjectStore } from '@/lib/store/project-store'
 import { Message } from './message'
+import { MentionAutocomplete } from './mention-autocomplete'
+import { getPartialMention, completeMention } from '@/lib/utils/mention-parser'
+import type { AgentId } from '@/lib/types/agent'
 
 export function ChatPanel() {
   const [input, setInput] = useState('')
   const [isComposing, setIsComposing] = useState(false)
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showMentionMenu, setShowMentionMenu] = useState(false)
+  const [mentionPartial, setMentionPartial] = useState('')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { messages, isLoading, fetchMessages, sendMessage, deleteMessage, deleteMessages, clearHistory, clearMessages } = useChatStore()
+  const { messages, messagesProjectId, isLoading, fetchMessages, sendMessage, deleteMessage, deleteMessages, clearHistory, clearMessages } = useChatStore()
   const { activeProject } = useProjectStore()
-
-  // Fetch messages when project changes
+  // Fetch messages when project changes, but only if messages don't already belong to this project
   useEffect(() => {
     if (activeProject) {
-      fetchMessages(activeProject.id)
+      // Only fetch if the store's messages are for a different project and we're not mid-conversation
+      if (messagesProjectId !== activeProject.id && !isLoading) {
+        fetchMessages(activeProject.id)
+      }
     } else {
       clearMessages()
     }
-  }, [activeProject, fetchMessages, clearMessages])
+  }, [activeProject, messagesProjectId, isLoading, fetchMessages, clearMessages])
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -54,15 +61,53 @@ export function ChatPanel() {
     }
   }, [messages.length])
 
+  // Check for @mention trigger on input change
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setInput(value)
+
+    const cursorPos = e.target.selectionStart || 0
+    const partial = getPartialMention(value, cursorPos)
+
+    if (partial !== null) {
+      setMentionPartial(partial)
+      setShowMentionMenu(true)
+    } else {
+      setShowMentionMenu(false)
+    }
+  }, [])
+
+  // Handle @mention selection
+  const handleMentionSelect = useCallback((agentId: AgentId) => {
+    const cursorPos = textareaRef.current?.selectionStart || input.length
+    const { text, newCursorPosition } = completeMention(input, cursorPos, agentId)
+    setInput(text)
+    setShowMentionMenu(false)
+
+    // Set cursor position after React re-renders
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(newCursorPosition, newCursorPosition)
+      }
+    }, 0)
+  }, [input])
+
   const handleSend = async () => {
     if (!input.trim() || !activeProject || isLoading) return
 
     const content = input.trim()
     setInput('')
+    setShowMentionMenu(false)
     await sendMessage(activeProject.id, content)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Let mention autocomplete handle these keys when open
+    if (showMentionMenu && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+      return
+    }
+
     // Don't send if composing (e.g., typing Chinese with IME)
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault()
@@ -97,13 +142,7 @@ export function ChatPanel() {
   }
 
   if (!activeProject) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center text-center text-gray-400 p-4">
-        <MessageSquare className="h-12 w-12 mb-2 opacity-50" />
-        <p className="text-sm">选择一个项目开始对话</p>
-        <p className="text-xs">在侧边栏创建新项目</p>
-      </div>
-    )
+    return null
   }
 
   return (
@@ -203,7 +242,7 @@ export function ChatPanel() {
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 p-4">
             <MessageSquare className="h-12 w-12 mb-2 opacity-50" />
             <p className="text-sm">暂无消息</p>
-            <p className="text-xs">开始对话来生成代码</p>
+            <p className="text-xs">输入 @ 选择 Agent，或直接开始对话</p>
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
@@ -221,6 +260,7 @@ export function ChatPanel() {
                   <Message
                     role={message.role}
                     content={message.content}
+                    agentId={message.agentId}
                     isStreaming={message.isStreaming}
                     toolCalls={message.toolCalls}
                     onDelete={isSelectMode ? undefined : () => deleteMessage(activeProject.id, message.id)}
@@ -234,12 +274,21 @@ export function ChatPanel() {
 
       {/* Input Area */}
       <div className="border-t border-gray-200 p-4 shrink-0 bg-white">
-        <div className="flex gap-2">
+        <div className="flex gap-2 relative">
+          {/* Mention Autocomplete */}
+          {showMentionMenu && (
+            <MentionAutocomplete
+              partial={mentionPartial}
+              onSelect={handleMentionSelect}
+              onClose={() => setShowMentionMenu(false)}
+            />
+          )}
+
           <Textarea
             ref={textareaRef}
-            placeholder="描述你想要构建的内容..."
+            placeholder="输入 @ 选择 Agent，或直接描述任务..."
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}

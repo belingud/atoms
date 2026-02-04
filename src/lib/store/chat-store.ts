@@ -1,7 +1,10 @@
 import { create } from 'zustand'
 import { createClient } from '@/lib/supabase/client'
 import type { Message } from '@/lib/types/database'
+import type { AgentId } from '@/lib/types/agent'
 import { usePreviewStore } from './preview-store'
+import { parseMentions } from '@/lib/utils/mention-parser'
+import { DEFAULT_AGENT_ID, getAgent } from '@/lib/agents/config'
 
 export interface ToolCall {
   id: string
@@ -15,12 +18,15 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  agentId?: string
+  delegatedFrom?: string
   isStreaming?: boolean
   toolCalls?: ToolCall[]
 }
 
 interface ChatState {
   messages: ChatMessage[]
+  messagesProjectId: string | null  // Track which project the current messages belong to
   isLoading: boolean
   error: string | null
 
@@ -42,54 +48,82 @@ const debug = (...args: unknown[]) => {
 }
 
 // Parse tool calls from the response
+// Supports two formats:
+// 1. Standard: <!--TOOL_CALLS:[{id, name, arguments}]-->
+// 2. Fallback for some models: <tools>{"name": "...", "arguments": {...}}</tools>
 function parseToolCalls(content: string): { cleanContent: string; toolCalls: ToolCall[] } {
   debug('parseToolCalls input length:', content.length)
-  debug('parseToolCalls looking for TOOL_CALLS marker...')
 
+  // Try standard format first
   const toolCallsMatch = content.match(/<!--TOOL_CALLS:(.*?)-->/)
-  debug('Tool calls marker found:', !!toolCallsMatch)
+  if (toolCallsMatch) {
+    debug('Found standard TOOL_CALLS marker')
+    try {
+      const toolCallsData = JSON.parse(toolCallsMatch[1]) as Array<{
+        id: string
+        name: string
+        arguments: string
+      }>
 
-  if (!toolCallsMatch) {
-    debug('No tool calls found in response')
-    return { cleanContent: content, toolCalls: [] }
-  }
-
-  try {
-    debug('Parsing tool calls JSON:', toolCallsMatch[1].substring(0, 200))
-    const toolCallsData = JSON.parse(toolCallsMatch[1]) as Array<{
-      id: string
-      name: string
-      arguments: string
-    }>
-
-    debug('Parsed tool calls data:', toolCallsData)
-
-    const toolCalls: ToolCall[] = toolCallsData.map(tc => {
-      let args: Record<string, unknown> = {}
-      if (tc.arguments) {
-        try {
-          args = JSON.parse(tc.arguments)
-        } catch (e) {
-          console.error('Failed to parse tool call arguments:', tc.arguments, e)
-          args = { _raw: tc.arguments }
+      const toolCalls: ToolCall[] = toolCallsData.map(tc => {
+        let args: Record<string, unknown> = {}
+        if (tc.arguments) {
+          try {
+            args = JSON.parse(tc.arguments)
+          } catch (e) {
+            console.error('Failed to parse tool call arguments:', tc.arguments, e)
+            args = { _raw: tc.arguments }
+          }
         }
-      }
-      return {
-        id: tc.id,
-        name: tc.name,
-        arguments: args,
-        status: 'pending' as const,
-      }
-    })
+        return {
+          id: tc.id,
+          name: tc.name,
+          arguments: args,
+          status: 'pending' as const,
+        }
+      })
 
-    const cleanContent = content.replace(/\n?<!--TOOL_CALLS:.*?-->/g, '').trim()
-    debug('Clean content length:', cleanContent.length)
-    debug('Parsed tool calls count:', toolCalls.length)
-    return { cleanContent, toolCalls }
-  } catch (error) {
-    console.error('Failed to parse tool calls:', error)
-    return { cleanContent: content.replace(/\n?<!--TOOL_CALLS:.*?-->/g, '').trim(), toolCalls: [] }
+      const cleanContent = content.replace(/\n?<!--TOOL_CALLS:.*?-->/g, '').trim()
+      return { cleanContent, toolCalls }
+    } catch (error) {
+      console.error('Failed to parse standard tool calls:', error)
+    }
   }
+
+  // Fallback: try <tools> format (used by some models like Qwen)
+  const toolsTagMatch = content.match(/<tools>\s*([\s\S]*?)\s*<\/tools>/i)
+  if (toolsTagMatch) {
+    debug('Found <tools> tag format')
+    try {
+      const toolJson = JSON.parse(toolsTagMatch[1]) as {
+        name: string
+        arguments: Record<string, unknown>
+      }
+
+      const toolCalls: ToolCall[] = [{
+        id: `tool_${Date.now()}`,
+        name: toolJson.name,
+        arguments: toolJson.arguments || {},
+        status: 'pending' as const,
+      }]
+
+      const cleanContent = content.replace(/<tools>[\s\S]*?<\/tools>/gi, '').trim()
+      debug('Parsed <tools> format, tool:', toolJson.name)
+      return { cleanContent, toolCalls }
+    } catch (error) {
+      console.error('Failed to parse <tools> format:', error)
+    }
+  }
+
+  // No tool calls found
+  debug('No tool calls found in response')
+  return { cleanContent: content, toolCalls: [] }
+}
+
+// Delegate task info stored for later execution
+interface DelegateTaskInfo {
+  agentId: string
+  task: string
 }
 
 // Execute a tool call
@@ -97,10 +131,19 @@ async function executeToolCall(
   toolCall: ToolCall,
   projectId: string,
   updateToolStatus: (id: string, status: ToolCall['status'], result?: string) => void
-): Promise<string | null> {
+): Promise<{ result: string | null; delegation?: DelegateTaskInfo }> {
   updateToolStatus(toolCall.id, 'running')
 
   try {
+    // Handle delegate_task specially - collect info for later execution
+    if (toolCall.name === 'delegate_task') {
+      const { agent_id, task } = toolCall.arguments as { agent_id: string; task: string }
+      const agent = getAgent(agent_id)
+      const result = `已委派给 ${agent.name}`
+      updateToolStatus(toolCall.id, 'completed', result)
+      return { result, delegation: { agentId: agent_id, task } }
+    }
+
     const previewStore = usePreviewStore.getState()
     let result: string | null = null
 
@@ -159,16 +202,17 @@ async function executeToolCall(
     }
 
     updateToolStatus(toolCall.id, 'completed')
-    return result
+    return { result }
   } catch (error) {
     console.error('Tool execution error:', error)
     updateToolStatus(toolCall.id, 'error')
-    return `Error: ${(error as Error).message}`
+    return { result: `Error: ${(error as Error).message}` }
   }
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
+  messagesProjectId: null,
   isLoading: false,
   error: null,
 
@@ -191,25 +235,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
           id: m.id,
           role: m.role,
           content: cleanContent,
+          agentId: m.agent_id || undefined,
           toolCalls: toolCalls.length > 0 ? toolCalls.map(tc => ({ ...tc, status: 'completed' as const })) : undefined,
         }
       })
 
-      set({ messages, isLoading: false })
+      set({ messages, messagesProjectId: projectId, isLoading: false })
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false })
     }
   },
 
   sendMessage: async (projectId: string, content: string) => {
+    // Parse @mentions from input
+    const parsed = parseMentions(content)
+    const agentId = parsed.agentId
+    const cleanContent = parsed.mentions.length > 0 ? parsed.content : content
+
     const userMessageId = crypto.randomUUID()
 
-    // Add user message immediately
+    // Add user message immediately and mark this project as owning the messages
     set((state) => ({
       messages: [
         ...state.messages,
         { id: userMessageId, role: 'user' as const, content },
       ],
+      messagesProjectId: projectId,
       isLoading: true,
       error: null,
     }))
@@ -227,12 +278,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Helper function to call AI and handle streaming response
       const callAI = async (
         msgs: Array<{ role: string; content: string }>,
-        assistantMessageId: string
+        assistantMessageId: string,
+        currentAgentId: string,
       ): Promise<string> => {
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ projectId, messages: msgs }),
+          body: JSON.stringify({ projectId, messages: msgs, agentId: currentAgentId }),
         })
 
         if (!response.ok) {
@@ -266,117 +318,191 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return rawContent
       }
 
-      // Conversation loop - continue until no more tool calls
-      let conversationMessages = get().messages.filter(m => !m.isStreaming).map(m => ({
+      // Result of an agent loop
+      interface AgentLoopResult {
+        delegations: DelegateTaskInfo[]
+        finalContent: string
+        conversationMessages: Array<{ role: string; content: string }>
+      }
+
+      // Run conversation loop for a specific agent
+      const runAgentLoop = async (
+        currentAgentId: string,
+        initialMessages: Array<{ role: string; content: string }>,
+        delegatedFrom?: string,
+      ): Promise<AgentLoopResult> => {
+        let conversationMessages = [...initialMessages]
+        let continueLoop = true
+        let loopCount = 0
+        const maxLoops = 40
+        const pendingDelegations: DelegateTaskInfo[] = []
+        let lastContent = ''
+
+        while (continueLoop && loopCount < maxLoops) {
+          loopCount++
+          debug(`\n=== AI Call #${loopCount} (Agent: ${currentAgentId}) ===`)
+
+          const assistantMessageId = crypto.randomUUID()
+
+          // Add placeholder for assistant message with agent info
+          set((state) => ({
+            messages: [
+              ...state.messages,
+              {
+                id: assistantMessageId,
+                role: 'assistant' as const,
+                content: '',
+                agentId: currentAgentId,
+                delegatedFrom,
+                isStreaming: true,
+              },
+            ],
+          }))
+
+          // Call AI with streaming
+          const rawContent = await callAI(conversationMessages, assistantMessageId, currentAgentId)
+          debug('Raw AI response:', rawContent)
+
+          // Parse tool calls
+          const { cleanContent: parsedContent, toolCalls } = parseToolCalls(rawContent)
+          lastContent = parsedContent
+
+          // Update message with content and tool calls
+          set((state) => ({
+            messages: state.messages.map((m) =>
+              m.id === assistantMessageId
+                ? { ...m, content: parsedContent, toolCalls: toolCalls.length > 0 ? toolCalls : undefined, isStreaming: false }
+                : m
+            ),
+          }))
+
+          // If no tool calls, we're done
+          if (toolCalls.length === 0) {
+            continueLoop = false
+            await supabase.from('messages').insert({
+              id: assistantMessageId,
+              project_id: projectId,
+              role: 'assistant',
+              content: rawContent,
+              agent_id: currentAgentId,
+            })
+          } else {
+            // Execute tool calls and collect results
+            const toolResults: Array<{ toolCallId: string; result: string }> = []
+
+            const updateToolStatus = (toolId: string, status: ToolCall['status'], result?: string) => {
+              set((state) => ({
+                messages: state.messages.map((m) =>
+                  m.id === assistantMessageId
+                    ? {
+                        ...m,
+                        toolCalls: m.toolCalls?.map(tc =>
+                          tc.id === toolId ? { ...tc, status, result } : tc
+                        ),
+                      }
+                    : m
+                ),
+              }))
+            }
+
+            // Execute tools sequentially
+            for (const toolCall of toolCalls) {
+              const { result, delegation } = await executeToolCall(toolCall, projectId, updateToolStatus)
+              toolResults.push({ toolCallId: toolCall.id, result: result || '' })
+              updateToolStatus(toolCall.id, 'completed', result || undefined)
+
+              // Collect delegations for later execution
+              if (delegation) {
+                pendingDelegations.push(delegation)
+              }
+            }
+
+            // Refresh files after tools executed
+            const hasFileTools = toolCalls.some(tc => tc.name !== 'delegate_task')
+            if (hasFileTools) {
+              const previewStore = usePreviewStore.getState()
+              await previewStore.fetchFiles(projectId)
+            }
+
+            // Save assistant message
+            await supabase.from('messages').insert({
+              id: assistantMessageId,
+              project_id: projectId,
+              role: 'assistant',
+              content: rawContent,
+              agent_id: currentAgentId,
+            })
+
+            // If there are delegations, pause the loop to execute them
+            if (pendingDelegations.length > 0) {
+              continueLoop = false
+            } else {
+              // Continue loop with tool results
+              conversationMessages = [
+                ...conversationMessages,
+                { role: 'assistant', content: parsedContent },
+                {
+                  role: 'user',
+                  content: `Tool results:\n${toolResults.map(tr =>
+                    `[${tr.toolCallId}]: ${tr.result}`
+                  ).join('\n\n')}\n\nPlease continue based on these results.`
+                },
+              ]
+            }
+          }
+        }
+
+        return {
+          delegations: pendingDelegations,
+          finalContent: lastContent,
+          conversationMessages,
+        }
+      }
+
+      // Start with the initial agent
+      const initialMessages = get().messages.filter(m => !m.isStreaming).map(m => ({
         role: m.role,
         content: m.content,
       }))
 
-      let continueLoop = true
-      let loopCount = 0
-      const maxLoops = 40 // Prevent infinite loops
+      let leaderResult = await runAgentLoop(agentId, initialMessages)
+      const maxDelegationRounds = 5
+      let delegationRound = 0
 
-      while (continueLoop && loopCount < maxLoops) {
-        loopCount++
-        debug(`\n=== AI Call #${loopCount} ===`)
-        debug('Sending messages:', JSON.stringify(conversationMessages, null, 2))
+      // Orchestration loop: leader delegates → agents execute → results return to leader
+      while (leaderResult.delegations.length > 0 && delegationRound < maxDelegationRounds) {
+        delegationRound++
+        debug(`\n=== Delegation Round ${delegationRound} ===`)
 
-        const assistantMessageId = crypto.randomUUID()
+        const delegationResults: string[] = []
 
-        // Add placeholder for assistant message
-        set((state) => ({
-          messages: [
-            ...state.messages,
-            { id: assistantMessageId, role: 'assistant' as const, content: '', isStreaming: true },
-          ],
-        }))
+        // Execute each delegation sequentially
+        for (const delegation of leaderResult.delegations) {
+          const delegatedAgent = getAgent(delegation.agentId)
+          debug(`Delegating to ${delegatedAgent.name}: ${delegation.task}`)
 
-        // Call AI with streaming
-        const rawContent = await callAI(conversationMessages, assistantMessageId)
-        debug('Raw AI response:', rawContent)
-
-        // Parse tool calls
-        const { cleanContent, toolCalls } = parseToolCalls(rawContent)
-        debug('Parsed content:', cleanContent)
-        debug('Parsed tool calls:', JSON.stringify(toolCalls, null, 2))
-
-        // Update message with content and tool calls
-        set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === assistantMessageId
-              ? { ...m, content: cleanContent, toolCalls: toolCalls.length > 0 ? toolCalls : undefined, isStreaming: false }
-              : m
-          ),
-        }))
-
-        // If no tool calls, we're done
-        if (toolCalls.length === 0) {
-          debug('No tool calls, ending conversation loop')
-          continueLoop = false
-          // Save to database
-          await supabase.from('messages').insert({
-            id: assistantMessageId,
-            project_id: projectId,
-            role: 'assistant',
-            content: rawContent,
-          })
-        } else {
-          debug(`Executing ${toolCalls.length} tool calls...`)
-          // Execute tool calls and collect results
-          const toolResults: Array<{ toolCallId: string; result: string }> = []
-
-          const updateToolStatus = (toolId: string, status: ToolCall['status'], result?: string) => {
-            set((state) => ({
-              messages: state.messages.map((m) =>
-                m.id === assistantMessageId
-                  ? {
-                      ...m,
-                      toolCalls: m.toolCalls?.map(tc =>
-                        tc.id === toolId ? { ...tc, status, result } : tc
-                      ),
-                    }
-                  : m
-              ),
-            }))
-          }
-
-          // Execute tools sequentially
-          for (const toolCall of toolCalls) {
-            const result = await executeToolCall(toolCall, projectId, updateToolStatus)
-            toolResults.push({ toolCallId: toolCall.id, result: result || '' })
-            // Update tool with result
-            updateToolStatus(toolCall.id, 'completed', result || undefined)
-          }
-
-          // Refresh files after all tools executed
-          const previewStore = usePreviewStore.getState()
-          await previewStore.fetchFiles(projectId)
-
-          // Save assistant message with tool calls
-          await supabase.from('messages').insert({
-            id: assistantMessageId,
-            project_id: projectId,
-            role: 'assistant',
-            content: rawContent,
-          })
-
-          // Add tool results to conversation for next AI call
-          conversationMessages = [
-            ...conversationMessages,
-            { role: 'assistant', content: cleanContent },
+          const delegationMessages: Array<{ role: string; content: string }> = [
             {
               role: 'user',
-              content: `Tool results:\n${toolResults.map(tr =>
-                `[${tr.toolCallId}]: ${tr.result}`
-              ).join('\n\n')}\n\nPlease continue based on these results.`
+              content: `团队领导委派给你的任务:\n\n${delegation.task}\n\n请立即执行这个任务。完成后请总结你的工作成果。`,
             },
           ]
-          debug('Tool results message:', conversationMessages[conversationMessages.length - 1].content)
-        }
-      }
 
-      if (loopCount >= maxLoops) {
-        debug('Max loop count reached, stopping conversation')
+          const agentResult = await runAgentLoop(delegation.agentId, delegationMessages, agentId)
+          delegationResults.push(`**${delegatedAgent.name}的报告:**\n${agentResult.finalContent}`)
+        }
+
+        // Feed results back to leader and let it continue
+        const feedbackMessages: Array<{ role: string; content: string }> = [
+          ...leaderResult.conversationMessages,
+          { role: 'assistant', content: leaderResult.finalContent },
+          {
+            role: 'user',
+            content: `以下是委派任务的执行结果:\n\n${delegationResults.join('\n\n---\n\n')}\n\n请根据结果决定下一步：继续委派其他人，或者给用户汇总报告。`,
+          },
+        ]
+
+        leaderResult = await runAgentLoop(agentId, feedbackMessages)
       }
 
       set({ isLoading: false })
@@ -389,7 +515,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearMessages: () => {
-    set({ messages: [], error: null })
+    set({ messages: [], messagesProjectId: null, error: null })
   },
 
   deleteMessage: async (projectId: string, messageId: string) => {
@@ -433,7 +559,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         console.error('Failed to clear history:', error)
         throw error
       }
-      set({ messages: [] })
+      set({ messages: [], messagesProjectId: projectId })
     } catch (error) {
       console.error('Failed to clear history:', error)
     }

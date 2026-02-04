@@ -1,5 +1,7 @@
 import { OpenAI } from 'openai'
 import { createClient } from '@/lib/supabase/server'
+import { getAgent, AGENTS } from '@/lib/agents/config'
+import type { AgentId } from '@/lib/types/agent'
 
 const isDev = process.env.NODE_ENV === 'development'
 
@@ -20,52 +22,9 @@ function getOpenAIClient() {
   })
 }
 
-const SYSTEM_PROMPT = `You are an expert full-stack developer AI assistant. You help users build web applications by generating high-quality code.
-
-## Code Generation Guidelines
-1. Use modern best practices and clean code principles
-2. Use TypeScript for type safety
-3. Follow the project's existing patterns and conventions
-4. Include brief comments only for complex logic
-
-## Project Structure
-When generating a React application, use this standard structure:
-- src/App.tsx - Main application component (REQUIRED)
-- src/components/*.tsx - Reusable components
-- src/hooks/*.ts - Custom hooks
-- src/utils/*.ts - Utility functions
-- src/types/*.ts - TypeScript types
-
-## Tools Available
-You have access to the following tools:
-
-### File Operations
-- write_file: Write or update a file in the project
-- read_file: Read the content of a file
-- list_directory: List files and directories in a path
-- search_files: Search for files by name pattern
-
-### Execution
-- run_command: Execute shell commands (but NOT npm install - use run_preview instead)
-- run_preview: Start or restart the preview server (automatically handles npm install)
-
-## IMPORTANT: Tool Usage Rules
-1. **Only use tools that are necessary** to answer the user's question
-2. **NEVER run npm install manually** - run_preview handles this automatically
-3. **After writing files, call run_preview** to start the app - it will install dependencies and start the dev server
-4. **Answer questions directly** when possible without using tools
-
-## Response Guidelines
-1. Be concise and direct
-2. Only use necessary tools
-3. Explain what you did briefly
-4. Don't be overly proactive - do what the user asks, not more
-
-Focus on generating working code.`
-
-// Define tools for OpenAI function calling
-const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
-  {
+// All available tool definitions
+const ALL_TOOLS: Record<string, OpenAI.Chat.Completions.ChatCompletionTool> = {
+  write_file: {
     type: 'function',
     function: {
       name: 'write_file',
@@ -86,7 +45,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
+  read_file: {
     type: 'function',
     function: {
       name: 'read_file',
@@ -103,7 +62,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
+  list_directory: {
     type: 'function',
     function: {
       name: 'list_directory',
@@ -120,7 +79,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
+  search_files: {
     type: 'function',
     function: {
       name: 'search_files',
@@ -137,7 +96,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
+  run_command: {
     type: 'function',
     function: {
       name: 'run_command',
@@ -154,7 +113,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-  {
+  run_preview: {
     type: 'function',
     function: {
       name: 'run_preview',
@@ -166,7 +125,37 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
-]
+  delegate_task: {
+    type: 'function',
+    function: {
+      name: 'delegate_task',
+      description: '委派任务给团队中的其他Agent。只有团队领导可以使用此工具。可委派给: pm(产品经理), engineer(工程师), architect(架构师), analyst(数据分析师), seo(SEO专家)',
+      parameters: {
+        type: 'object',
+        properties: {
+          agent_id: {
+            type: 'string',
+            description: '目标Agent的ID: pm, engineer, architect, analyst, seo',
+            enum: ['pm', 'engineer', 'architect', 'analyst', 'seo'],
+          },
+          task: {
+            type: 'string',
+            description: '要委派的任务描述',
+          },
+        },
+        required: ['agent_id', 'task'],
+      },
+    },
+  },
+}
+
+// Get tools for a specific agent based on their allowed tool list
+function getToolsForAgent(agentId: string): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  const agent = getAgent(agentId)
+  return agent.tools
+    .filter(name => ALL_TOOLS[name])
+    .map(name => ALL_TOOLS[name])
+}
 
 export async function POST(request: Request) {
   try {
@@ -178,7 +167,7 @@ export async function POST(request: Request) {
       return new Response('Unauthorized', { status: 401 })
     }
 
-    const { messages, projectId } = await request.json()
+    const { messages, projectId, agentId } = await request.json()
 
     if (!projectId || !messages) {
       return new Response('Missing required fields', { status: 400 })
@@ -196,21 +185,28 @@ export async function POST(request: Request) {
       return new Response('Project not found', { status: 404 })
     }
 
+    // Resolve agent
+    const resolvedAgentId = agentId || 'engineer'
+    const agent = getAgent(resolvedAgentId)
+    const agentTools = getToolsForAgent(resolvedAgentId)
+
     const openai = getOpenAIClient()
 
     debug('\n=== API: Chat Request ===')
     debug('Model:', process.env.OPENAI_MODEL || 'gpt-4o')
+    debug('Agent:', resolvedAgentId, agent.name)
     debug('Messages count:', messages.length)
+    debug('Tools:', agentTools.map(t => t.type === 'function' ? t.function.name : t.type))
 
     // Create streaming response with tools
     const stream = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL || 'gpt-4o',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: agent.systemPrompt },
         ...messages,
       ],
-      tools,
-      tool_choice: 'auto',
+      tools: agentTools.length > 0 ? agentTools : undefined,
+      tool_choice: agentTools.length > 0 ? 'auto' : undefined,
       stream: true,
     })
 

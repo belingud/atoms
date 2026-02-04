@@ -6,7 +6,8 @@
       "Bash(pnpm remove:*)",
       "Bash(pnpm dlx:*)",
       "Bash(pnpm build:*)",
-      "Bash(pnpm tsc:*)"
+      "Bash(pnpm tsc:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

@@ -1,23 +1,63 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ArrowUp, Sparkles } from 'lucide-react'
 import { useProjectStore } from '@/lib/store/project-store'
 import { useChatStore } from '@/lib/store/chat-store'
+import { MentionAutocomplete } from '@/components/chat/mention-autocomplete'
+import { getPartialMention, completeMention } from '@/lib/utils/mention-parser'
+import type { AgentId } from '@/lib/types/agent'
 
 export function WelcomePage() {
   const [input, setInput] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
+  const [showMentionMenu, setShowMentionMenu] = useState(false)
+  const [mentionPartial, setMentionPartial] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
   const { createProject, setActiveProject } = useProjectStore()
   const { sendMessage } = useChatStore()
+
+  // Check for @mention trigger on input change
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setInput(value)
+
+    const cursorPos = e.target.selectionStart || 0
+    const partial = getPartialMention(value, cursorPos)
+
+    if (partial !== null) {
+      setMentionPartial(partial)
+      setShowMentionMenu(true)
+    } else {
+      setShowMentionMenu(false)
+    }
+  }, [])
+
+  // Handle @mention selection
+  const handleMentionSelect = useCallback((agentId: AgentId) => {
+    const cursorPos = textareaRef.current?.selectionStart || input.length
+    const { text, newCursorPosition } = completeMention(input, cursorPos, agentId)
+    setInput(text)
+    setShowMentionMenu(false)
+
+    // Set cursor position after React re-renders
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(newCursorPosition, newCursorPosition)
+      }
+    }, 0)
+  }, [input])
 
   const handleSubmit = async () => {
     if (!input.trim() || isCreating) return
 
     setIsCreating(true)
+    setShowMentionMenu(false)
     try {
       // Generate project name using AI
       const nameResponse = await fetch('/api/generate-name', {
@@ -48,6 +88,11 @@ export function WelcomePage() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Let mention autocomplete handle these keys when open
+    if (showMentionMenu && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
       e.preventDefault()
       handleSubmit()
@@ -80,12 +125,24 @@ export function WelcomePage() {
       </p>
 
       {/* Input area */}
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-2xl relative">
+        {/* Mention Autocomplete - positioned above input */}
+        {showMentionMenu && (
+          <div className="absolute bottom-full left-0 right-0 mb-2 flex justify-center z-50">
+            <MentionAutocomplete
+              partial={mentionPartial}
+              onSelect={handleMentionSelect}
+              onClose={() => setShowMentionMenu(false)}
+            />
+          </div>
+        )}
+
         <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
           <Textarea
-            placeholder="描述你想要构建的应用..."
+            ref={textareaRef}
+            placeholder="输入 @ 选择 Agent，或直接描述你想要构建的应用..."
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
@@ -95,7 +152,7 @@ export function WelcomePage() {
           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
             <div className="flex items-center gap-2 text-gray-400 text-sm">
               <Sparkles className="h-4 w-4" />
-              <span>按 Enter 发送</span>
+              <span>输入 @ 选择 Agent · Enter 发送</span>
             </div>
             <Button
               size="icon"
@@ -112,9 +169,9 @@ export function WelcomePage() {
       {/* Example prompts */}
       <div className="mt-8 flex flex-wrap justify-center gap-2">
         {[
-          '创建一个待办事项应用',
-          '做一个天气预报网站',
-          '设计一个计数器组件',
+          '@工程师 创建一个待办事项应用',
+          '@架构师 设计一个博客系统的架构',
+          '@团队领导 构建一个电商网站',
         ].map((prompt) => (
           <button
             key={prompt}

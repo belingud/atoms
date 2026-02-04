@@ -40,6 +40,7 @@ interface PreviewState {
   clearFiles: () => void
   triggerRunPreview: () => void
   clearPendingRunPreview: () => void
+  stopPreview: () => void
   queueCommand: (command: string) => Promise<string>
   getNextCommand: () => PendingCommand | undefined
   resolveCommand: (id: string, output: string) => void
@@ -226,6 +227,14 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
 
   clearPendingRunPreview: () => {
     set({ pendingRunPreview: false })
+  },
+
+  stopPreview: () => {
+    set({
+      webContainerUrl: null,
+      webContainerStatus: 'idle',
+    })
+    get().addTerminalOutput('Preview stopped.')
   },
 
   queueCommand: (command: string) => {

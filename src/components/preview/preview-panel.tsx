@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Globe, FolderTree, Code, Terminal as TerminalIcon, Play, Loader2, AlertCircle } from 'lucide-react'
+import { Globe, FolderTree, Code, Terminal as TerminalIcon, Play, Square, Loader2, AlertCircle } from 'lucide-react'
 import { usePreviewStore } from '@/lib/store/preview-store'
 import { useProjectStore } from '@/lib/store/project-store'
 import { FileTree } from './file-tree'
@@ -39,6 +39,7 @@ export function PreviewPanel() {
     addTerminalOutput,
     clearTerminalOutput,
     clearPendingRunPreview,
+    stopPreview,
     getNextCommand,
     resolveCommand,
     rejectCommand,
@@ -98,10 +99,11 @@ export function PreviewPanel() {
       let fsTree = filesToFileSystemTree(fileList)
       fsTree = ensurePackageJson(fsTree, activeProject?.name || 'my-app')
 
-      setWebContainerStatus('installing')
       await webcontainer.mount(fsTree)
       addTerminalOutput('Files mounted.')
 
+      // Run npm install
+      setWebContainerStatus('installing')
       addTerminalOutput('Installing dependencies (npm install)...')
       const installProcess = await webcontainer.spawn('npm', ['install'])
 
@@ -153,6 +155,12 @@ export function PreviewPanel() {
     setWebContainerStatus,
     setWebContainerUrl,
   ])
+
+  const handleStopPreview = useCallback(async () => {
+    await teardownWebContainer()
+    webContainerRef.current = null
+    stopPreview()
+  }, [stopPreview])
 
   // Execute a command in WebContainer with timeout
   const executeCommand = useCallback(async (command: string): Promise<string> => {
@@ -295,23 +303,36 @@ export function PreviewPanel() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Run button */}
+          {/* Run/Stop buttons */}
           {files.length > 0 && isSupported && (
-            <Button
-              size="sm"
-              onClick={runPreview}
-              disabled={isRunning}
-              className="gap-2"
-            >
-              {isRunning ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : webContainerStatus === 'error' ? (
-                <AlertCircle className="h-4 w-4" />
-              ) : (
-                <Play className="h-4 w-4" />
+            <div className="flex gap-2">
+              {(webContainerStatus === 'ready' || webContainerStatus === 'running') && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleStopPreview}
+                  className="gap-2"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                  停止
+                </Button>
               )}
-              {statusText[webContainerStatus]}
-            </Button>
+              <Button
+                size="sm"
+                onClick={runPreview}
+                disabled={isRunning}
+                className="gap-2"
+              >
+                {isRunning ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : webContainerStatus === 'error' ? (
+                  <AlertCircle className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                {statusText[webContainerStatus]}
+              </Button>
+            </div>
           )}
         </div>
 

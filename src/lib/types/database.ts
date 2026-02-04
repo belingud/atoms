@@ -39,6 +39,7 @@ export interface Database {
           project_id: string
           role: 'user' | 'assistant'
           content: string
+          agent_id: string | null
           created_at: string
         }
         Insert: {
@@ -46,6 +47,7 @@ export interface Database {
           project_id: string
           role: 'user' | 'assistant'
           content: string
+          agent_id?: string | null
           created_at?: string
         }
         Update: {
@@ -53,6 +55,7 @@ export interface Database {
           project_id?: string
           role?: 'user' | 'assistant'
           content?: string
+          agent_id?: string | null
           created_at?: string
         }
         Relationships: [

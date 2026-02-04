@@ -151,8 +151,7 @@ function findUserEntryPoint(tree: FileSystemTree): { path: string; importPath: s
   return null
 }
 
-// Create a basic setup that works WITHOUT npm install
-// Uses static HTML with ES modules from CDN - no build step needed
+// Create a basic package.json if not provided
 export function ensurePackageJson(
   tree: FileSystemTree,
   projectName: string = 'my-app'
@@ -160,7 +159,6 @@ export function ensurePackageJson(
   // Find user's entry point first
   const userEntryPoint = findUserEntryPoint(tree)
 
-  // Minimal package.json - only for running a simple static server
   if (!tree['package.json']) {
     tree['package.json'] = {
       file: {
@@ -170,12 +168,56 @@ export function ensurePackageJson(
             version: '1.0.0',
             type: 'module',
             scripts: {
-              dev: 'npx serve -l 3000',
+              dev: 'vite',
+            },
+            dependencies: {
+              react: '^18.2.0',
+              'react-dom': '^18.2.0',
+            },
+            devDependencies: {
+              '@vitejs/plugin-react': '^4.0.0',
+              vite: '^5.0.0',
             },
           },
           null,
           2
         ),
+      },
+    }
+  }
+
+  // Ensure vite.config.js exists
+  if (!tree['vite.config.js']) {
+    tree['vite.config.js'] = {
+      file: {
+        contents: `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+})
+`,
+      },
+    }
+  }
+
+  // Ensure index.html exists
+  if (!tree['index.html']) {
+    tree['index.html'] = {
+      file: {
+        contents: `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preview</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+`,
       },
     }
   }
@@ -186,53 +228,22 @@ export function ensurePackageJson(
   }
   const srcDir = (tree['src'] as DirectoryNode).directory
 
-  // Determine the app component path
-  const appPath = userEntryPoint?.path || 'src/App.tsx'
-  const appFileName = appPath.split('/').pop() || 'App.tsx'
-  const jsAppPath = appFileName.replace(/\.tsx?$/, '.js')
+  // Determine import path for main.tsx
+  const importPath = userEntryPoint?.importPath || './App'
 
-  // Ensure index.html exists - uses importmap for React from CDN
-  if (!tree['index.html']) {
-    tree['index.html'] = {
+  // Only create main.tsx if it doesn't exist
+  if (!srcDir['main.tsx']) {
+    srcDir['main.tsx'] = {
       file: {
-        contents: `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${projectName}</title>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script type="importmap">
-    {
-      "imports": {
-        "react": "https://esm.sh/react@18.2.0",
-        "react-dom": "https://esm.sh/react-dom@18.2.0",
-        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime"
-      }
-    }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="text/babel" data-type="module">
-      import React from 'react';
-      import ReactDOM from 'react-dom/client';
+        contents: `import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from '${importPath}'
 
-      // App component will be loaded below
-    </script>
-    <script type="text/babel" data-type="module" src="./src/App.tsx"></script>
-    <script type="text/babel" data-type="module">
-      import React from 'react';
-      import ReactDOM from 'react-dom/client';
-      import App from './src/App.tsx';
-
-      ReactDOM.createRoot(document.getElementById('root')).render(
-        React.createElement(React.StrictMode, null, React.createElement(App))
-      );
-    </script>
-  </body>
-</html>
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)
 `,
       },
     }
@@ -242,15 +253,13 @@ export function ensurePackageJson(
   if (!userEntryPoint && !srcDir['App.tsx']) {
     srcDir['App.tsx'] = {
       file: {
-        contents: `import React from 'react';
-
-export default function App() {
+        contents: `export default function App() {
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
       <h1>Hello from WebContainer!</h1>
       <p>Your app is running.</p>
     </div>
-  );
+  )
 }
 `,
       },

@@ -4,14 +4,16 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { User, Bot, Loader2, Play, FileCode, CheckCircle2, Circle, AlertCircle, FolderOpen, Search, Terminal as TerminalIcon, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { User, Bot, Loader2, Play, FileCode, CheckCircle2, Circle, AlertCircle, FolderOpen, Search, Terminal as TerminalIcon, ChevronDown, ChevronRight, Trash2, Users } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ToolCall } from '@/lib/store/chat-store'
+import { AgentBadge, AgentAvatar } from './agent-badge'
 
 interface MessageProps {
   role: 'user' | 'assistant'
   content: string
+  agentId?: string
   isStreaming?: boolean
   toolCalls?: ToolCall[]
   onDelete?: () => void
@@ -25,6 +27,7 @@ const TOOL_CONFIG: Record<string, { icon: React.ReactNode; label: string }> = {
   search_files: { icon: <Search className="h-3.5 w-3.5" />, label: '搜索文件' },
   run_command: { icon: <TerminalIcon className="h-3.5 w-3.5" />, label: '执行命令' },
   run_preview: { icon: <Play className="h-3.5 w-3.5" />, label: '启动预览' },
+  delegate_task: { icon: <Users className="h-3.5 w-3.5" />, label: '委派任务' },
 }
 
 // Status icons
@@ -57,6 +60,9 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
     }
     if (toolCall.name === 'run_command') {
       return args.command as string
+    }
+    if (toolCall.name === 'delegate_task') {
+      return `${args.agent_id}: ${(args.task as string)?.substring(0, 50)}...`
     }
     return null
   })()
@@ -97,7 +103,7 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
   )
 }
 
-export function Message({ role, content, isStreaming, toolCalls, onDelete }: MessageProps) {
+export function Message({ role, content, agentId, isStreaming, toolCalls, onDelete }: MessageProps) {
   const isUser = role === 'user'
   const [isHovered, setIsHovered] = useState(false)
 
@@ -110,19 +116,31 @@ export function Message({ role, content, isStreaming, toolCalls, onDelete }: Mes
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <Avatar className="h-8 w-8 shrink-0">
-        <AvatarFallback className={cn(
-          'text-xs',
-          isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary'
-        )}>
-          {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-        </AvatarFallback>
-      </Avatar>
+      {isUser ? (
+        <Avatar className="h-8 w-8 shrink-0">
+          <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+            <User className="h-4 w-4" />
+          </AvatarFallback>
+        </Avatar>
+      ) : agentId ? (
+        <AgentAvatar agentId={agentId} />
+      ) : (
+        <Avatar className="h-8 w-8 shrink-0">
+          <AvatarFallback className="text-xs bg-secondary">
+            <Bot className="h-4 w-4" />
+          </AvatarFallback>
+        </Avatar>
+      )}
 
       <div className="flex-1 min-w-0 space-y-2">
-        <p className="text-sm font-medium">
-          {isUser ? 'You' : 'Assistant'}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium">
+            {isUser ? 'You' : agentId ? undefined : 'Assistant'}
+          </p>
+          {!isUser && agentId && (
+            <AgentBadge agentId={agentId} size="sm" />
+          )}
+        </div>
 
         {/* Text content */}
         <div className="prose prose-sm max-w-none text-gray-800">
