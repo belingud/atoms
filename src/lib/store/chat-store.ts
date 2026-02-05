@@ -343,12 +343,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const userMessageId = crypto.randomUUID()
 
+    // Check if we're switching projects - if so, clear old messages
+    const currentState = get()
+    const isSwitchingProjects = currentState.messagesProjectId !== projectId
+
     // Add user message immediately and mark this project as owning the messages
     set((state) => ({
-      messages: [
-        ...state.messages,
-        { id: userMessageId, role: 'user' as const, content },
-      ],
+      // If switching projects, start fresh; otherwise append to existing messages
+      messages: isSwitchingProjects
+        ? [{ id: userMessageId, role: 'user' as const, content }]
+        : [...state.messages, { id: userMessageId, role: 'user' as const, content }],
       messagesProjectId: projectId,
       isLoading: true,
       error: null,
@@ -741,11 +745,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       abortController = null
-      set((state) => ({
+      set({
         // Don't show error for user-initiated stops
         error: isAborted ? null : errorMessage,
         isLoading: false,
-      }))
+      })
     }
   },
 
