@@ -7,7 +7,9 @@
       "Bash(pnpm dlx:*)",
       "Bash(pnpm build:*)",
       "Bash(pnpm tsc:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm eslint:*)"
     ]
   }
 }

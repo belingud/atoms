@@ -160,7 +160,6 @@ OpenAI Streaming → 文本 + <!--TOOL_CALLS:JSON-->
 | 团队领导   | `leader`    | 否     | 全部 + delegate_task |
 | 产品经理   | `pm`        | 否     | 文件读写             |
 | **工程师** | `engineer`  | **是** | 全部代码工具         |
-| 架构师     | `architect` | 否     | 只读                 |
 | 数据分析师 | `analyst`   | 否     | 文件读写 + 命令      |
 | SEO专家    | `seo`       | 否     | 文件读写             |
 

@@ -40,18 +40,18 @@ export function ProjectSidebar() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-gray-50/50">
+    <div className="flex h-full flex-col bg-gray-50/80">
       {/* New Project Button */}
-      <div className="p-3">
+      <div className="p-4">
         <Button
           onClick={handleNewProject}
           className={cn(
-            "w-full justify-start gap-2 border-0",
+            "w-full justify-start gap-2 h-11 rounded-xl font-medium shadow-sm",
             !activeProject
-              ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-              : "bg-blue-50 text-blue-600 hover:bg-blue-100"
+              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/20"
+              : "bg-white text-blue-600 hover:bg-blue-50 border border-gray-200/80"
           )}
-          variant="outline"
+          variant={!activeProject ? "default" : "outline"}
         >
           <Plus className="h-4 w-4" />
           新项目
@@ -59,21 +59,21 @@ export function ProjectSidebar() {
       </div>
 
       {/* Projects Section */}
-      <div className="px-4 py-2">
+      <div className="px-4 py-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-gray-700">我的项目</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">我的项目</span>
           <ChevronRight className="h-4 w-4 text-gray-400" />
         </div>
       </div>
 
-      <ScrollArea className="flex-1 px-2">
+      <ScrollArea className="flex-1 px-3">
         {isLoading && projects.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <p className="text-sm text-gray-400">加载中...</p>
           </div>
         ) : projects.length === 0 ? (
-          <div className="px-3 py-2">
-            <p className="text-sm text-gray-400">暂无项目</p>
+          <div className="px-3 py-4">
+            <p className="text-sm text-gray-400 text-center">暂无项目</p>
           </div>
         ) : (
           <div className="space-y-1 pb-4">
@@ -81,31 +81,35 @@ export function ProjectSidebar() {
               <div
                 key={project.id}
                 className={cn(
-                  'group flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors',
+                  'group flex items-center justify-between rounded-xl px-3 py-2.5 cursor-pointer transition-all duration-200',
                   activeProject?.id === project.id
-                    ? 'bg-white shadow-sm border border-gray-200 text-gray-900'
-                    : 'hover:bg-white/60 text-gray-600'
+                    ? 'bg-white shadow-md shadow-gray-200/50 border border-gray-200/60 text-gray-900'
+                    : 'hover:bg-white/70 text-gray-600 hover:shadow-sm'
                 )}
                 onClick={() => setActiveProject(project)}
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Folder className="h-4 w-4 shrink-0" />
-                  <span className="text-sm truncate">{project.name}</span>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={cn(
+                    "h-2 w-2 rounded-full",
+                    activeProject?.id === project.id ? "bg-blue-500" : "bg-gray-300"
+                  )} />
+                  <Folder className="h-4 w-4 shrink-0 text-gray-400" />
+                  <span className="text-sm font-medium truncate">{project.name}</span>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                      className="h-7 w-7 opacity-0 group-hover:opacity-100 rounded-lg"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      <MoreHorizontal className="h-4 w-4 text-gray-400" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="w-40">
                     <DropdownMenuItem
-                      className="text-destructive"
+                      className="text-destructive cursor-pointer"
                       onClick={(e) => handleDeleteProject(project.id, e)}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />

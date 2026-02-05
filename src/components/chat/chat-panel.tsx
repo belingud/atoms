@@ -15,12 +15,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { Send, MessageSquare, Trash2, X, CheckSquare } from 'lucide-react'
+import { Send, Square, MessageSquare, Trash2, X, CheckSquare } from 'lucide-react'
 import { useChatStore } from '@/lib/store/chat-store'
 import { useProjectStore } from '@/lib/store/project-store'
+import { useVersionStore } from '@/lib/store/version-store'
 import { Message } from './message'
+import { VersionCard } from './version-card'
 import { MentionAutocomplete } from './mention-autocomplete'
 import { getPartialMention, completeMention } from '@/lib/utils/mention-parser'
+import { cn } from '@/lib/utils'
 import type { AgentId } from '@/lib/types/agent'
 
 export function ChatPanel() {
@@ -33,19 +36,27 @@ export function ChatPanel() {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { messages, messagesProjectId, isLoading, fetchMessages, sendMessage, deleteMessage, deleteMessages, clearHistory, clearMessages } = useChatStore()
+  const { messages, messagesProjectId, isLoading, isFetchingMessages, fetchMessages, sendMessage, stopGeneration, deleteMessage, deleteMessages, clearHistory, clearMessages } = useChatStore()
   const { activeProject } = useProjectStore()
+  const { versions, fetchVersions, restoreVersion } = useVersionStore()
   // Fetch messages when project changes, but only if messages don't already belong to this project
   useEffect(() => {
     if (activeProject) {
-      // Only fetch if the store's messages are for a different project and we're not mid-conversation
-      if (messagesProjectId !== activeProject.id && !isLoading) {
+      // Only fetch if the store's messages are for a different project and we're not mid-fetch
+      if (messagesProjectId !== activeProject.id && !isFetchingMessages) {
         fetchMessages(activeProject.id)
       }
     } else {
       clearMessages()
     }
-  }, [activeProject, messagesProjectId, isLoading, fetchMessages, clearMessages])
+  }, [activeProject, messagesProjectId, isFetchingMessages, fetchMessages, clearMessages])
+
+  // Fetch versions when project changes
+  useEffect(() => {
+    if (activeProject) {
+      fetchVersions(activeProject.id)
+    }
+  }, [activeProject, fetchVersions])
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -60,6 +71,18 @@ export function ChatPanel() {
       setSelectedIds(new Set())
     }
   }, [messages.length])
+
+  // ESC key to stop generation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isLoading) {
+        e.preventDefault()
+        stopGeneration()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isLoading, stopGeneration])
 
   // Check for @mention trigger on input change
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -141,6 +164,17 @@ export function ChatPanel() {
     setSelectedIds(new Set())
   }
 
+  // Get version for a specific message
+  const getVersionForMessage = useCallback((messageId: string) => {
+    return versions.find(v => v.message_id === messageId)
+  }, [versions])
+
+  // Handle version restore
+  const handleRestoreVersion = useCallback(async (versionId: string) => {
+    if (!activeProject) return false
+    return await restoreVersion(activeProject.id, versionId)
+  }, [activeProject, restoreVersion])
+
   if (!activeProject) {
     return null
   }
@@ -148,13 +182,19 @@ export function ChatPanel() {
   return (
     <div className="flex h-full flex-col">
       {/* Chat Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 shrink-0 bg-white">
-        <div>
-          <h2 className="text-sm font-semibold">{activeProject.name}</h2>
-          <p className="text-xs text-muted-foreground">
-            {messages.length} 条消息
-            {isSelectMode && selectedIds.size > 0 && ` · 已选 ${selectedIds.size} 条`}
-          </p>
+      <div className="flex items-center justify-between border-b border-gray-200/80 px-5 py-3 shrink-0 bg-white/80 backdrop-blur-sm">
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            "h-2.5 w-2.5 rounded-full",
+            isLoading ? "bg-amber-400 animate-pulse" : "bg-emerald-500"
+          )} />
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">{activeProject.name}</h2>
+            <p className="text-xs text-gray-500">
+              {messages.length} 条消息
+              {isSelectMode && selectedIds.size > 0 && <span className="text-blue-600 font-medium"> · 已选 {selectedIds.size} 条</span>}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {isSelectMode ? (
@@ -246,35 +286,47 @@ export function ChatPanel() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {messages.map((message) => (
-              <div key={message.id} className="flex">
-                {isSelectMode && (
-                  <div className="flex items-start pt-4 pl-3">
-                    <Checkbox
-                      checked={selectedIds.has(message.id)}
-                      onCheckedChange={() => toggleSelect(message.id)}
-                    />
+            {messages.map((message) => {
+              const version = getVersionForMessage(message.id)
+              return (
+                <div key={message.id}>
+                  <div className="flex">
+                    {isSelectMode && (
+                      <div className="flex items-start pt-4 pl-3">
+                        <Checkbox
+                          checked={selectedIds.has(message.id)}
+                          onCheckedChange={() => toggleSelect(message.id)}
+                        />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <Message
+                        role={message.role}
+                        content={message.content}
+                        thinking={message.thinking}
+                        agentId={message.agentId}
+                        isStreaming={message.isStreaming}
+                        toolCalls={message.toolCalls}
+                        onDelete={isSelectMode ? undefined : () => deleteMessage(activeProject.id, message.id)}
+                      />
+                    </div>
                   </div>
-                )}
-                <div className="flex-1">
-                  <Message
-                    role={message.role}
-                    content={message.content}
-                    agentId={message.agentId}
-                    isStreaming={message.isStreaming}
-                    toolCalls={message.toolCalls}
-                    onDelete={isSelectMode ? undefined : () => deleteMessage(activeProject.id, message.id)}
-                  />
+                  {version && (
+                    <VersionCard
+                      version={version}
+                      onRestore={handleRestoreVersion}
+                    />
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-gray-200 p-4 shrink-0 bg-white">
-        <div className="flex gap-2 relative">
+      <div className="border-t border-gray-200/80 p-4 shrink-0 bg-white">
+        <div className="flex gap-3 relative">
           {/* Mention Autocomplete */}
           {showMentionMenu && (
             <MentionAutocomplete
@@ -292,17 +344,29 @@ export function ChatPanel() {
             onKeyDown={handleKeyDown}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
-            className="min-h-[80px] resize-none"
+            className="min-h-[90px] resize-none rounded-xl border-gray-200/80 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all"
             disabled={isLoading}
           />
-          <Button
-            size="icon"
-            className="shrink-0 self-end rounded-full h-9 w-9 bg-gray-900 hover:bg-gray-800"
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {isLoading ? (
+            <Button
+              size="icon"
+              variant="outline"
+              className="shrink-0 self-end rounded-full h-10 w-10 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300 shadow-sm"
+              onClick={stopGeneration}
+              title="停止生成 (Esc)"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              className="shrink-0 self-end rounded-full h-10 w-10 bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 shadow-md shadow-gray-900/20 hover:shadow-lg hover:shadow-gray-900/30 transition-all duration-200"
+              onClick={handleSend}
+              disabled={!input.trim()}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>

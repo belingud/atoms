@@ -28,7 +28,7 @@ const ALL_TOOLS: Record<string, OpenAI.Chat.Completions.ChatCompletionTool> = {
     type: 'function',
     function: {
       name: 'write_file',
-      description: 'Write or update a file in the project. Use this to create new files or modify existing ones.',
+      description: 'Create a new file or completely rewrite an existing file. Use this for new files or when you need to replace the entire content.',
       parameters: {
         type: 'object',
         properties: {
@@ -42,6 +42,31 @@ const ALL_TOOLS: Record<string, OpenAI.Chat.Completions.ChatCompletionTool> = {
           },
         },
         required: ['path', 'content'],
+      },
+    },
+  },
+  update_file: {
+    type: 'function',
+    function: {
+      name: 'update_file',
+      description: 'Update part of an existing file by replacing specific content. Use this when you only need to modify a portion of the file (e.g., fix a bug, add a function, change some lines). More efficient than rewriting the entire file.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'The file path to update, e.g., src/App.tsx',
+          },
+          old_content: {
+            type: 'string',
+            description: 'The exact content to find and replace. Must match exactly including whitespace and indentation.',
+          },
+          new_content: {
+            type: 'string',
+            description: 'The new content to replace with',
+          },
+        },
+        required: ['path', 'old_content', 'new_content'],
       },
     },
   },
@@ -62,17 +87,38 @@ const ALL_TOOLS: Record<string, OpenAI.Chat.Completions.ChatCompletionTool> = {
       },
     },
   },
+  delete_file: {
+    type: 'function',
+    function: {
+      name: 'delete_file',
+      description: 'Delete a file from the project.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'The file path to delete, e.g., src/components/OldComponent.tsx',
+          },
+        },
+        required: ['path'],
+      },
+    },
+  },
   list_directory: {
     type: 'function',
     function: {
       name: 'list_directory',
-      description: 'List all files and directories in a given path.',
+      description: 'List files and directories in a given path. Supports recursive listing with depth control.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
             description: 'The directory path to list, e.g., src or src/components. Use empty string for root.',
+          },
+          depth: {
+            type: 'number',
+            description: 'How many levels deep to list. 1 = direct children only (default), 2 = include grandchildren, etc. Use higher values to see full directory structure.',
           },
         },
         required: ['path'],
@@ -129,21 +175,29 @@ const ALL_TOOLS: Record<string, OpenAI.Chat.Completions.ChatCompletionTool> = {
     type: 'function',
     function: {
       name: 'delegate_task',
-      description: '委派任务给团队中的其他Agent。只有团队领导可以使用此工具。可委派给: pm(产品经理), engineer(工程师), architect(架构师), analyst(数据分析师), seo(SEO专家)',
+      description: '委派任务给团队中的其他Agent。只有团队领导可以使用此工具。可委派给: pm(产品经理-需求分析), engineer(工程师-写代码), analyst(数据分析师-图表), seo(SEO专家-优化)。必须提供详细的任务说明和必要的上下文信息。',
       parameters: {
         type: 'object',
         properties: {
           agent_id: {
             type: 'string',
-            description: '目标Agent的ID: pm, engineer, architect, analyst, seo',
-            enum: ['pm', 'engineer', 'architect', 'analyst', 'seo'],
+            description: '目标Agent的ID: pm, engineer, analyst, seo',
+            enum: ['pm', 'engineer', 'analyst', 'seo'],
           },
           task: {
             type: 'string',
-            description: '要委派的任务描述',
+            description: '具体的任务目标，清晰说明要做什么',
+          },
+          requirements: {
+            type: 'string',
+            description: '任务的具体要求，如技术栈、风格、约束条件、验收标准等',
+          },
+          context: {
+            type: 'string',
+            description: '必要的背景信息，如相关代码、文件路径、用户原始需求、前序Agent的产出结果等',
           },
         },
-        required: ['agent_id', 'task'],
+        required: ['agent_id', 'task', 'requirements', 'context'],
       },
     },
   },
@@ -196,7 +250,8 @@ export async function POST(request: Request) {
     debug('Model:', process.env.OPENAI_MODEL || 'gpt-4o')
     debug('Agent:', resolvedAgentId, agent.name)
     debug('Messages count:', messages.length)
-    debug('Tools:', agentTools.map(t => t.type === 'function' ? t.function.name : t.type))
+    debug('Tools count:', agentTools.length)
+    debug('Tool names:', agentTools.map(t => t.type === 'function' ? t.function.name : t.type))
 
     // Create streaming response with tools
     const stream = await openai.chat.completions.create({
@@ -214,12 +269,20 @@ export async function POST(request: Request) {
     const encoder = new TextEncoder()
     let toolCalls: { id: string; name: string; arguments: string }[] = []
     let fullContent = ''
+    let finishReason = ''
 
     const readableStream = new ReadableStream({
       async start(controller) {
         try {
           for await (const chunk of stream) {
             const delta = chunk.choices[0]?.delta
+            const chunkFinishReason = chunk.choices[0]?.finish_reason
+
+            // Track finish reason
+            if (chunkFinishReason) {
+              finishReason = chunkFinishReason
+              debug('Finish reason:', finishReason)
+            }
 
             // Handle text content
             if (delta?.content) {
@@ -229,6 +292,7 @@ export async function POST(request: Request) {
 
             // Handle tool calls
             if (delta?.tool_calls) {
+              // debug('Received tool_calls delta:', JSON.stringify(delta.tool_calls))
               for (const toolCall of delta.tool_calls) {
                 const index = toolCall.index
                 if (!toolCalls[index]) {
@@ -252,11 +316,21 @@ export async function POST(request: Request) {
           }
 
           debug('=== API: Response Complete ===')
+          debug('Finish reason:', finishReason)
           debug('Content length:', fullContent.length)
           debug('Content preview:', fullContent.substring(0, 200))
           debug('Tool calls count:', toolCalls.length)
           if (toolCalls.length > 0) {
             debug('Tool calls:', JSON.stringify(toolCalls, null, 2))
+          } else {
+            debug('⚠️ No tool calls received from API')
+            if (finishReason === 'stop') {
+              debug('Model finished with "stop" - it chose not to call tools')
+            } else if (finishReason === 'length') {
+              debug('Model finished with "length" - response was truncated!')
+            } else if (finishReason === 'tool_calls') {
+              debug('Model finished with "tool_calls" but no tools parsed - check parsing logic')
+            }
           }
 
           // If there are tool calls, send them as a special message

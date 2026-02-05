@@ -101,6 +101,77 @@ export interface Database {
           }
         ]
       }
+      project_versions: {
+        Row: {
+          id: string
+          project_id: string
+          version_number: number
+          description: string | null
+          agent_id: string | null
+          message_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          version_number: number
+          description?: string | null
+          agent_id?: string | null
+          message_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          version_number?: number
+          description?: string | null
+          agent_id?: string | null
+          message_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'project_versions_project_id_fkey'
+            columns: ['project_id']
+            referencedRelation: 'projects'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'project_versions_message_id_fkey'
+            columns: ['message_id']
+            referencedRelation: 'messages'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      version_files: {
+        Row: {
+          id: string
+          version_id: string
+          path: string
+          content: string
+        }
+        Insert: {
+          id?: string
+          version_id: string
+          path: string
+          content: string
+        }
+        Update: {
+          id?: string
+          version_id?: string
+          path?: string
+          content?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'version_files_version_id_fkey'
+            columns: ['version_id']
+            referencedRelation: 'project_versions'
+            referencedColumns: ['id']
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -127,3 +198,5 @@ export type UpdateTables<T extends keyof Database['public']['Tables']> =
 export type Project = Tables<'projects'>
 export type Message = Tables<'messages'>
 export type File = Tables<'files'>
+export type ProjectVersion = Tables<'project_versions'>
+export type VersionFile = Tables<'version_files'>

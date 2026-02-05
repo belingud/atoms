@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { getAgentSuggestions } from '@/lib/utils/mention-parser'
 import { getAgent } from '@/lib/agents/config'
 import type { AgentId } from '@/lib/types/agent'
+import { AgentAvatar } from './agent-badge'
 import {
   Crown,
   ClipboardList,
@@ -85,10 +86,10 @@ export function MentionAutocomplete({ partial, onSelect, onClose, position }: Me
   return (
     <div
       ref={ref}
-      className="absolute z-50 w-64 rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden"
+      className="absolute z-50 w-72 rounded-xl border border-gray-200/80 bg-white shadow-2xl shadow-gray-900/10 overflow-hidden backdrop-blur-sm"
       style={position ? { bottom: position.top, left: position.left } : { bottom: '100%', left: 0 }}
     >
-      <div className="px-3 py-1.5 text-xs text-muted-foreground border-b border-gray-100">
+      <div className="px-3 py-2 text-xs font-medium text-gray-500 bg-gray-50/80 border-b border-gray-100">
         选择 Agent
       </div>
       <div className="py-1">
@@ -99,22 +100,22 @@ export function MentionAutocomplete({ partial, onSelect, onClose, position }: Me
             <button
               key={agentId}
               className={cn(
-                'flex items-center gap-2.5 w-full px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors',
-                index === selectedIndex && 'bg-gray-50'
+                'flex items-center gap-3 w-full px-3 py-2.5 text-left text-sm transition-all duration-150',
+                index === selectedIndex
+                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50/50'
+                  : 'hover:bg-gray-50'
               )}
               onClick={() => onSelect(agentId)}
               onMouseEnter={() => setSelectedIndex(index)}
             >
-              <div
-                className="flex items-center justify-center h-7 w-7 rounded-full shrink-0"
-                style={{ backgroundColor: `${agent.color}15`, color: agent.color }}
-              >
-                {IconComponent && <IconComponent className="h-3.5 w-3.5" />}
-              </div>
+              <AgentAvatar agentId={agentId} />
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-900">{agent.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{agent.description}</div>
+                <div className="font-semibold text-gray-900">{agent.name}</div>
+                <div className="text-xs text-gray-500 truncate">{agent.description}</div>
               </div>
+              {index === selectedIndex && (
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+              )}
             </button>
           )
         })}

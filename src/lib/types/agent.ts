@@ -9,4 +9,4 @@ export interface Agent {
   color: string // theme color for UI
 }
 
-export type AgentId = 'leader' | 'pm' | 'engineer' | 'architect' | 'analyst' | 'seo'
+export type AgentId = 'leader' | 'pm' | 'engineer' | 'analyst' | 'seo'

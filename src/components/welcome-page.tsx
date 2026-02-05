@@ -102,11 +102,12 @@ export function WelcomePage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-full px-4 py-12">
       {/* Decorative avatars */}
-      <div className="flex -space-x-2 mb-6">
+      <div className="flex -space-x-3 mb-8">
         {['🧑‍💻', '👩‍🎨', '🧑‍🔬', '👨‍🚀', '🤖', '🎨', '💡'].map((emoji, i) => (
           <div
             key={i}
-            className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center text-lg border-2 border-white shadow-sm"
+            className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-100 via-indigo-100 to-purple-100 flex items-center justify-center text-xl border-3 border-white shadow-md hover:scale-110 hover:-translate-y-1 transition-all duration-300"
+            style={{ animationDelay: `${i * 50}ms` }}
           >
             {emoji}
           </div>
@@ -114,13 +115,13 @@ export function WelcomePage() {
       </div>
 
       {/* Headline */}
-      <h1 className="text-4xl md:text-5xl font-bold text-center mb-4">
+      <h1 className="text-4xl md:text-6xl font-bold text-center mb-5 tracking-tight">
         <span className="text-gray-900">把想法变成</span>
-        <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"> 产品</span>
+        <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent"> 产品</span>
       </h1>
 
       {/* Subtitle */}
-      <p className="text-gray-500 text-center mb-8 max-w-md">
+      <p className="text-gray-500 text-center mb-10 max-w-lg text-lg leading-relaxed">
         AI 助手帮你构建产品。描述你的想法，几分钟内完成。无需编码。
       </p>
 
@@ -137,7 +138,7 @@ export function WelcomePage() {
           </div>
         )}
 
-        <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+        <div className="relative bg-white rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-200/80 overflow-hidden hover:shadow-2xl hover:shadow-gray-200/60 transition-shadow duration-300">
           <Textarea
             ref={textareaRef}
             placeholder="输入 @ 选择 Agent，或直接描述你想要构建的应用..."
@@ -146,17 +147,17 @@ export function WelcomePage() {
             onKeyDown={handleKeyDown}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
-            className="min-h-[120px] border-0 resize-none focus-visible:ring-0 text-base p-4 pb-14"
+            className="min-h-[140px] border-0 resize-none focus-visible:ring-0 text-base p-5 pb-16 bg-transparent"
             disabled={isCreating}
           />
-          <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+          <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-gray-400 text-sm">
-              <Sparkles className="h-4 w-4" />
+              <Sparkles className="h-4 w-4 text-amber-500" />
               <span>输入 @ 选择 Agent · Enter 发送</span>
             </div>
             <Button
               size="icon"
-              className="rounded-full h-9 w-9 bg-gray-900 hover:bg-gray-800"
+              className="rounded-full h-10 w-10 bg-gradient-to-r from-gray-900 to-gray-800 hover:from-gray-800 hover:to-gray-700 shadow-lg shadow-gray-900/20 hover:shadow-xl hover:shadow-gray-900/30 transition-all duration-200 hover:scale-105"
               onClick={handleSubmit}
               disabled={!input.trim() || isCreating}
             >
@@ -167,16 +168,16 @@ export function WelcomePage() {
       </div>
 
       {/* Example prompts */}
-      <div className="mt-8 flex flex-wrap justify-center gap-2">
+      <div className="mt-10 flex flex-wrap justify-center gap-3">
         {[
           '@工程师 创建一个待办事项应用',
-          '@架构师 设计一个博客系统的架构',
           '@团队领导 构建一个电商网站',
-        ].map((prompt) => (
+        ].map((prompt, i) => (
           <button
             key={prompt}
             onClick={() => setInput(prompt)}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
+            className="px-5 py-2.5 text-sm text-gray-600 bg-white hover:bg-gray-50 border border-gray-200/80 hover:border-gray-300 rounded-full transition-all duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5"
+            style={{ animationDelay: `${i * 100}ms` }}
           >
             {prompt}
           </button>

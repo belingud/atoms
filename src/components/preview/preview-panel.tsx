@@ -11,6 +11,7 @@ import { FileTree } from './file-tree'
 import { CodeEditor, getLanguageFromPath } from './code-editor'
 import { BrowserPreview } from './browser-preview'
 import { Terminal } from './terminal'
+import { VersionHistory } from './version-history'
 import {
   getWebContainer,
   isWebContainerSupported,
@@ -303,9 +304,10 @@ export function PreviewPanel() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Run/Stop buttons */}
+          {/* Version history and Run/Stop buttons */}
           {files.length > 0 && isSupported && (
             <div className="flex gap-2">
+              <VersionHistory />
               {(webContainerStatus === 'ready' || webContainerStatus === 'running') && (
                 <Button
                   size="sm"

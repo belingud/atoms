@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { User, Bot, Loader2, Play, FileCode, CheckCircle2, Circle, AlertCircle, FolderOpen, Search, Terminal as TerminalIcon, ChevronDown, ChevronRight, Trash2, Users } from 'lucide-react'
+import { User, Bot, Loader2, Play, FileCode, CheckCircle2, Circle, AlertCircle, FolderOpen, Search, Terminal as TerminalIcon, ChevronDown, ChevronRight, Trash2, Users, Brain } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ToolCall } from '@/lib/store/chat-store'
@@ -13,6 +13,7 @@ import { AgentBadge, AgentAvatar } from './agent-badge'
 interface MessageProps {
   role: 'user' | 'assistant'
   content: string
+  thinking?: string
   agentId?: string
   isStreaming?: boolean
   toolCalls?: ToolCall[]
@@ -62,7 +63,8 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
       return args.command as string
     }
     if (toolCall.name === 'delegate_task') {
-      return `${args.agent_id}: ${(args.task as string)?.substring(0, 50)}...`
+      const task = (args.task as string)?.substring(0, 40) || ''
+      return `→ ${args.agent_id}: ${task}${task.length >= 40 ? '...' : ''}`
     }
     return null
   })()
@@ -103,30 +105,32 @@ function ToolCallItem({ toolCall }: { toolCall: ToolCall }) {
   )
 }
 
-export function Message({ role, content, agentId, isStreaming, toolCalls, onDelete }: MessageProps) {
+export function Message({ role, content, thinking, agentId, isStreaming, toolCalls, onDelete }: MessageProps) {
   const isUser = role === 'user'
   const [isHovered, setIsHovered] = useState(false)
+  const [isThinkingExpanded, setIsThinkingExpanded] = useState(false)
 
   return (
     <div
       className={cn(
-        'flex gap-3 px-4 py-4 relative group',
-        isUser ? 'bg-white' : 'bg-gray-50/80'
+        'flex gap-3 px-5 py-5 relative group',
+        isUser ? 'bg-white hover:bg-gray-50/50' : 'bg-slate-50/80 hover:bg-slate-100/50',
+        'transition-colors duration-200'
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       {isUser ? (
-        <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+        <Avatar className="h-9 w-9 shrink-0 ring-2 ring-white shadow-sm">
+          <AvatarFallback className="text-xs bg-gradient-to-br from-gray-700 to-gray-900 text-white">
             <User className="h-4 w-4" />
           </AvatarFallback>
         </Avatar>
       ) : agentId ? (
         <AgentAvatar agentId={agentId} />
       ) : (
-        <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback className="text-xs bg-secondary">
+        <Avatar className="h-9 w-9 shrink-0 ring-2 ring-white shadow-sm">
+          <AvatarFallback className="text-xs bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-600">
             <Bot className="h-4 w-4" />
           </AvatarFallback>
         </Avatar>
@@ -134,7 +138,7 @@ export function Message({ role, content, agentId, isStreaming, toolCalls, onDele
 
       <div className="flex-1 min-w-0 space-y-2">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">
+          <p className="text-sm font-semibold text-gray-900">
             {isUser ? 'You' : agentId ? undefined : 'Assistant'}
           </p>
           {!isUser && agentId && (
@@ -142,14 +146,37 @@ export function Message({ role, content, agentId, isStreaming, toolCalls, onDele
           )}
         </div>
 
+        {/* Thinking process - collapsible */}
+        {thinking && (
+          <div className="rounded-lg border border-purple-100 bg-purple-50/50 overflow-hidden">
+            <button
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-purple-700 hover:bg-purple-100/50 transition-colors"
+              onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+            >
+              {isThinkingExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              <Brain className="h-3.5 w-3.5" />
+              <span className="font-medium">思考过程</span>
+            </button>
+            {isThinkingExpanded && (
+              <div className="px-3 pb-3 border-t border-purple-100">
+                <div className="prose prose-sm max-w-none text-purple-800/80 leading-relaxed pt-2">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {thinking}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Text content */}
-        <div className="prose prose-sm max-w-none text-gray-800">
+        <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed">
           {content ? (
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
                 pre: ({ children }) => (
-                  <pre className="overflow-x-auto rounded-lg bg-gray-900 p-4 text-sm text-gray-100">
+                  <pre className="overflow-x-auto rounded-xl bg-gray-900 p-4 text-sm text-gray-100 shadow-lg">
                     {children}
                   </pre>
                 ),
@@ -158,7 +185,7 @@ export function Message({ role, content, agentId, isStreaming, toolCalls, onDele
                   const isInline = !match
                   return isInline ? (
                     <code
-                      className="rounded bg-gray-100 px-1.5 py-0.5 text-sm text-gray-800"
+                      className="rounded-md bg-gray-100 px-1.5 py-0.5 text-sm font-medium text-gray-800 border border-gray-200"
                       {...props}
                     >
                       {children}
@@ -174,7 +201,7 @@ export function Message({ role, content, agentId, isStreaming, toolCalls, onDele
               {content}
             </ReactMarkdown>
           ) : isStreaming && (!toolCalls || toolCalls.length === 0) ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex items-center gap-2 text-gray-400">
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-sm">思考中...</span>
             </div>
@@ -183,10 +210,10 @@ export function Message({ role, content, agentId, isStreaming, toolCalls, onDele
 
         {/* Tool calls */}
         {toolCalls && toolCalls.length > 0 && (
-          <div className="space-y-1.5 pt-1">
+          <div className="space-y-2 pt-2">
             {isStreaming && (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex items-center gap-2 text-gray-500 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
                 <span>执行工具中...</span>
               </div>
             )}
@@ -202,7 +229,7 @@ export function Message({ role, content, agentId, isStreaming, toolCalls, onDele
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-2 right-2 h-6 w-6 opacity-60 hover:opacity-100"
+          className="absolute top-3 right-3 h-7 w-7 rounded-lg opacity-0 group-hover:opacity-60 hover:opacity-100 hover:bg-red-50 hover:text-red-500 transition-all"
           onClick={onDelete}
         >
           <Trash2 className="h-3.5 w-3.5" />

@@ -13,20 +13,17 @@ const MENTION_MAP: Record<string, AgentId> = {
   '团队领导': 'leader',
   '产品经理': 'pm',
   '工程师': 'engineer',
-  '架构师': 'architect',
   '数据分析师': 'analyst',
   'SEO专家': 'seo',
   'seo专家': 'seo',
   // Chinese aliases
   '领导': 'leader',
   '开发': 'engineer',
-  '架构': 'architect',
   '分析师': 'analyst',
   // English names (case-insensitive handled in parsing)
   'leader': 'leader',
   'pm': 'pm',
   'engineer': 'engineer',
-  'architect': 'architect',
   'analyst': 'analyst',
   'seo': 'seo',
   // English aliases

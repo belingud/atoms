@@ -32,6 +32,8 @@ interface PreviewState {
 
   fetchFiles: (projectId: string) => Promise<void>
   saveFile: (projectId: string, path: string, content: string) => Promise<void>
+  updateFile: (projectId: string, path: string, oldContent: string, newContent: string) => Promise<{ success: boolean; error?: string }>
+  deleteFile: (projectId: string, path: string) => Promise<boolean>
   selectFile: (file: File | null) => void
   setWebContainerUrl: (url: string | null) => void
   setWebContainerStatus: (status: WebContainerStatus) => void
@@ -48,7 +50,7 @@ interface PreviewState {
 
   // File operation helpers
   getFileContent: (path: string) => string | null
-  listDirectory: (path: string) => { name: string; type: 'file' | 'directory' }[]
+  listDirectory: (path: string, depth?: number) => { name: string; path: string; type: 'file' | 'directory'; children?: ReturnType<PreviewState['listDirectory']> }[]
   searchFiles: (pattern: string) => string[]
 }
 
@@ -161,6 +163,72 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
       })
     } catch (error) {
       console.error('Failed to save file:', error)
+    }
+  },
+
+  updateFile: async (projectId: string, path: string, oldContent: string, newContent: string) => {
+    const file = get().files.find(f => f.path === path)
+    if (!file) {
+      return { success: false, error: `File not found: ${path}` }
+    }
+
+    if (!file.content.includes(oldContent)) {
+      return { success: false, error: `Content to replace not found in ${path}` }
+    }
+
+    const updatedContent = file.content.replace(oldContent, newContent)
+
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('files')
+        .upsert(
+          { project_id: projectId, path, content: updatedContent },
+          { onConflict: 'project_id,path' }
+        )
+        .select()
+        .single()
+
+      if (error) throw error
+
+      set((state) => {
+        const files = state.files.map((f) => f.path === path ? data : f)
+        return {
+          files,
+          fileTree: buildFileTree(files),
+        }
+      })
+      return { success: true }
+    } catch (error) {
+      console.error('Failed to update file:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  },
+
+  deleteFile: async (projectId: string, path: string) => {
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('files')
+        .delete()
+        .eq('project_id', projectId)
+        .eq('path', path)
+
+      if (error) throw error
+
+      set((state) => {
+        const files = state.files.filter((f) => f.path !== path)
+        return {
+          files,
+          fileTree: buildFileTree(files),
+          // Clear selected file if it was deleted
+          selectedFile: state.selectedFile?.path === path ? null : state.selectedFile,
+        }
+      })
+      return true
+    } catch (error) {
+      console.error('Failed to delete file:', error)
+      return false
     }
   },
 
@@ -297,40 +365,61 @@ export const usePreviewStore = create<PreviewState>((set, get) => ({
     return file?.content ?? null
   },
 
-  listDirectory: (path: string) => {
+  listDirectory: (path: string, depth: number = 1) => {
     const files = get().files
     const normalizedPath = path.replace(/^\/+|\/+$/g, '') // Remove leading/trailing slashes
-    const results: { name: string; type: 'file' | 'directory' }[] = []
-    const seen = new Set<string>()
 
-    for (const file of files) {
-      const filePath = file.path.replace(/^\/+/, '')
+    type DirItem = { name: string; path: string; type: 'file' | 'directory'; children?: DirItem[] }
 
-      // Check if file is in the target directory
-      if (normalizedPath === '') {
-        // Root directory - get first part of path
-        const firstPart = filePath.split('/')[0]
-        if (!seen.has(firstPart)) {
-          seen.add(firstPart)
-          const isDir = filePath.includes('/')
-          results.push({ name: firstPart, type: isDir ? 'directory' : 'file' })
+    const listAtPath = (dirPath: string, currentDepth: number): DirItem[] => {
+      const results: DirItem[] = []
+      const seen = new Set<string>()
+
+      for (const file of files) {
+        const filePath = file.path.replace(/^\/+/, '')
+
+        // Check if file is in the target directory
+        let match = false
+        let remaining = ''
+
+        if (dirPath === '') {
+          match = true
+          remaining = filePath
+        } else if (filePath.startsWith(dirPath + '/')) {
+          match = true
+          remaining = filePath.slice(dirPath.length + 1)
         }
-      } else if (filePath.startsWith(normalizedPath + '/')) {
-        // Subdirectory
-        const remaining = filePath.slice(normalizedPath.length + 1)
-        const firstPart = remaining.split('/')[0]
-        if (!seen.has(firstPart)) {
-          seen.add(firstPart)
-          const isDir = remaining.includes('/')
-          results.push({ name: firstPart, type: isDir ? 'directory' : 'file' })
+
+        if (match && remaining) {
+          const firstPart = remaining.split('/')[0]
+          if (!seen.has(firstPart)) {
+            seen.add(firstPart)
+            const isDir = remaining.includes('/')
+            const itemPath = dirPath ? `${dirPath}/${firstPart}` : firstPart
+
+            const item: DirItem = {
+              name: firstPart,
+              path: itemPath,
+              type: isDir ? 'directory' : 'file',
+            }
+
+            // Recursively list children if depth allows and it's a directory
+            if (isDir && currentDepth < depth) {
+              item.children = listAtPath(itemPath, currentDepth + 1)
+            }
+
+            results.push(item)
+          }
         }
       }
+
+      return results.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+        return a.name.localeCompare(b.name)
+      })
     }
 
-    return results.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
+    return listAtPath(normalizedPath, 1)
   },
 
   searchFiles: (pattern: string) => {
