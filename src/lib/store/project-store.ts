@@ -12,6 +12,7 @@ interface ProjectState {
   createProject: (name: string) => Promise<Project | null>
   setActiveProject: (project: Project | null) => void
   deleteProject: (id: string) => Promise<void>
+  renameProject: (id: string, newName: string) => Promise<boolean>
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -92,6 +93,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       })
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false })
+    }
+  },
+
+  renameProject: async (id: string, newName: string) => {
+    const trimmedName = newName.trim()
+    if (!trimmedName) return false
+
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('projects')
+        .update({ name: trimmedName })
+        .eq('id', id)
+
+      if (error) throw error
+
+      set((state) => {
+        const projects = state.projects.map((p) =>
+          p.id === id ? { ...p, name: trimmedName } : p
+        )
+        const activeProject = state.activeProject?.id === id
+          ? { ...state.activeProject, name: trimmedName }
+          : state.activeProject
+        return { projects, activeProject }
+      })
+
+      return true
+    } catch (error) {
+      set({ error: (error as Error).message })
+      return false
     }
   },
 }))

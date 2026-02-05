@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   DropdownMenu,
@@ -9,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, MoreHorizontal, Trash2, Folder, ChevronRight } from 'lucide-react'
+import { Plus, MoreHorizontal, Trash2, Folder, ChevronRight, Pencil, Check, X } from 'lucide-react'
 import { useProjectStore } from '@/lib/store/project-store'
 import { cn } from '@/lib/utils'
 
@@ -21,16 +22,55 @@ export function ProjectSidebar() {
     fetchProjects,
     setActiveProject,
     deleteProject,
+    renameProject,
   } = useProjectStore()
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetchProjects()
   }, [fetchProjects])
 
+  useEffect(() => {
+    if (editingId && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editingId])
+
   const handleDeleteProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (confirm('确定要删除这个项目吗？')) {
       await deleteProject(id)
+    }
+  }
+
+  const handleStartRename = (id: string, currentName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingId(id)
+    setEditingName(currentName)
+  }
+
+  const handleConfirmRename = async () => {
+    if (editingId && editingName.trim()) {
+      await renameProject(editingId, editingName)
+    }
+    setEditingId(null)
+    setEditingName('')
+  }
+
+  const handleCancelRename = () => {
+    setEditingId(null)
+    setEditingName('')
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleConfirmRename()
+    } else if (e.key === 'Escape') {
+      handleCancelRename()
     }
   }
 
@@ -86,37 +126,81 @@ export function ProjectSidebar() {
                     ? 'bg-white shadow-md shadow-gray-200/50 border border-gray-200/60 text-gray-900'
                     : 'hover:bg-white/70 text-gray-600 hover:shadow-sm'
                 )}
-                onClick={() => setActiveProject(project)}
+                onClick={() => editingId !== project.id && setActiveProject(project)}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={cn(
-                    "h-2 w-2 rounded-full",
-                    activeProject?.id === project.id ? "bg-blue-500" : "bg-gray-300"
-                  )} />
-                  <Folder className="h-4 w-4 shrink-0 text-gray-400" />
-                  <span className="text-sm font-medium truncate">{project.name}</span>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                {editingId === project.id ? (
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Input
+                      ref={inputRef}
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-7 text-sm flex-1"
+                    />
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 rounded-lg"
-                      onClick={(e) => e.stopPropagation()}
+                      className="h-7 w-7 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleConfirmRename()
+                      }}
                     >
-                      <MoreHorizontal className="h-4 w-4 text-gray-400" />
+                      <Check className="h-4 w-4 text-green-600" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem
-                      className="text-destructive cursor-pointer"
-                      onClick={(e) => handleDeleteProject(project.id, e)}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleCancelRename()
+                      }}
                     >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      删除
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      <X className="h-4 w-4 text-gray-400" />
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={cn(
+                        "h-2 w-2 rounded-full",
+                        activeProject?.id === project.id ? "bg-blue-500" : "bg-gray-300"
+                      )} />
+                      <Folder className="h-4 w-4 shrink-0 text-gray-400" />
+                      <span className="text-sm font-medium truncate">{project.name}</span>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 opacity-0 group-hover:opacity-100 rounded-lg"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreHorizontal className="h-4 w-4 text-gray-400" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuItem
+                          className="cursor-pointer"
+                          onClick={(e) => handleStartRename(project.id, project.name, e)}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          重命名
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive cursor-pointer"
+                          onClick={(e) => handleDeleteProject(project.id, e)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          删除
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                )}
               </div>
             ))}
           </div>
