@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -57,6 +57,15 @@ export function ChatPanel() {
       fetchVersions(activeProject.id)
     }
   }, [activeProject, fetchVersions])
+
+  // Refresh versions when conversation ends (isLoading transitions from true to false)
+  const prevLoadingRef = useRef(isLoading)
+  useEffect(() => {
+    if (prevLoadingRef.current && !isLoading && activeProject) {
+      fetchVersions(activeProject.id)
+    }
+    prevLoadingRef.current = isLoading
+  }, [isLoading, activeProject, fetchVersions])
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -169,6 +178,18 @@ export function ChatPanel() {
     return versions.find(v => v.message_id === messageId)
   }, [versions])
 
+  // Get versions that don't match any message (message_id is null or message was deleted)
+  const unmatchedVersions = useMemo(() => {
+    const matchedMessageIds = new Set(
+      versions
+        .filter(v => v.message_id && messages.some(m => m.id === v.message_id))
+        .map(v => v.id)
+    )
+    return versions
+      .filter(v => !matchedMessageIds.has(v.id))
+      .sort((a, b) => a.version_number - b.version_number)
+  }, [versions, messages])
+
   // Handle version restore
   const handleRestoreVersion = useCallback(async (versionId: string) => {
     if (!activeProject) return false
@@ -278,7 +299,7 @@ export function ChatPanel() {
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto"
       >
-        {messages.length === 0 ? (
+        {messages.length === 0 && unmatchedVersions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-gray-400 p-4">
             <MessageSquare className="h-12 w-12 mb-2 opacity-50" />
             <p className="text-sm">暂无消息</p>
@@ -320,6 +341,14 @@ export function ChatPanel() {
                 </div>
               )
             })}
+            {/* Show versions that don't have a matching message (orphaned versions) */}
+            {unmatchedVersions.map((version) => (
+              <VersionCard
+                key={`orphan-version-${version.id}`}
+                version={version}
+                onRestore={handleRestoreVersion}
+              />
+            ))}
           </div>
         )}
       </div>
